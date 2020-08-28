@@ -1,0 +1,192 @@
+---
+title: "Intersection_ploidy_matingsystem"
+author: "Nathan Fumia"
+date: "8/26/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(raster)
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(car)
+library(MuMIn)
+library(MASS)
+library(caret)
+library(stargazer)
+library(kableExtra)
+library(ape)
+library(phytools)
+library(phylolm)
+library(ggtree)
+library(aplot)
+library(nlme)
+```
+
+## Step 1: Bind climate classifications to occurrence data
+```{r}
+#Read in Koppen-Geiger Climate Classification Data
+climate_space <-read.table("Koeppen-Geiger-ASCII.txt",header=TRUE)
+
+#Read in potato CWR occurrence data
+Solanum_OccurrenceRaw <- read.csv("potatoSpooner_figshare.csv",header=TRUE)
+
+#Clean occurrence points with missing data
+Solanum_OccurrenceClean <- drop_na(data=Solanum_OccurrenceRaw)
+
+#Rounding 'lat' and 'lon' to 2 decimal places
+occurrence <- Solanum_OccurrenceClean %>% 
+  mutate_at(vars(lat,lon),funs(round(.,digits=2)))
+
+#Rounding 'lat' and 'lon' to match climate classification
+Latitude <- ifelse(occurrence$lat %% 1 > 0.5,
+       occurrence$lat %/%1 + 0.75,
+       occurrence$lat %/%1 + 0.25)
+
+Longitude <- ifelse(occurrence$lon %% 1 > 0.5,
+       occurrence$lon %/%1 + 0.75,
+       occurrence$lon %/%1 + 0.25)
+
+occurrence_altLatLon <- cbind(occurrence,Latitude,Longitude)
+
+#Bind climate class and occurrence data
+occurrence_Cls <- occurrence_altLatLon %>% 
+  left_join(climate_space,by=c("Latitude"="Lat","Longitude"="Lon")) %>% 
+  drop_na()
+
+```
+
+## Step 2: Generating range variables per taxon
+```{r}
+potato_ci_working <- read.csv('potato_cwr_elev.csv',header=TRUE)
+
+potato_ci_working <- potato_ci_working[,c(1:5)]
+
+potato_ci_working <- potato_ci_working %>% 
+                       drop_na()
+
+pot.n <- potato_ci_working %>% 
+          count(taxon,name="n")
+
+potato_ci <- potato_ci_working %>% 
+                group_by(taxon) %>% 
+                summarise(mean.elev=mean(elevation),sd.elev=sd(elevation),mean.lat=mean(Lat),sd.lat=sd(Lat),mean.long=mean(Lon),sd.elev=sd(elevation),sd.lat=sd(Lat),sd.long=sd(Lon)) 
+
+potato_ci <- cbind(potato_ci,pot.n)
+
+potato_ci <- potato_ci[,-8]
+
+#Elevation 95% Confidence Interval
+ci.elev.low <- potato_ci$mean.elev+(-1)*qt(p=0.975, df=potato_ci$n-1)*(potato_ci$sd.elev/sqrt(potato_ci$n))
+ci.elev.up <- potato_ci$mean.elev+(1)*qt(p=0.975, df=potato_ci$n-1)*(potato_ci$sd.elev/sqrt(potato_ci$n))
+#Latitude 95% Confidence Interval
+ci.lat.low <- potato_ci$mean.lat+(-1)*qt(p=0.975, df=potato_ci$n-1)*(potato_ci$sd.lat/sqrt(potato_ci$n))
+ci.lat.up <- potato_ci$mean.lat+(1)*qt(p=0.975, df=potato_ci$n-1)*(potato_ci$sd.lat/sqrt(potato_ci$n))
+#Longitude 95% Confidence Interval
+ci.long.low <- potato_ci$mean.long+(-1)*qt(p=0.975, df=potato_ci$n-1)*(potato_ci$sd.long/sqrt(potato_ci$n))
+ci.long.up <- potato_ci$mean.long+(1)*qt(p=0.975, df=potato_ci$n-1)*(potato_ci$sd.long/sqrt(potato_ci$n))
+
+
+potato_ci <- cbind(potato_ci,ci.elev.low,ci.elev.up,ci.lat.low,ci.lat.up,ci.long.low,ci.long.up)
+
+#Writing new .csv file
+write.csv(potato_ci,"potato_ci.csv",row.names=FALSE)
+```
+
+## Step 3: Load Evolutionary Drivers data frame
+```{r}
+evol_drivers <- read.csv("evol_drivers.csv",header=TRUE)
+
+evol_drivers_phylo2 <- read.csv("evol_drivers_phylo2.csv",header=TRUE)
+
+
+ggplot(data=evol_drivers,aes(x=taxon,y=Cls.cnt,fill=MS_PL)) +
+  geom_bar(stat="identity") +
+  theme(axis.text.x=element_text(angle=45,color="black",hjust=1,size=5))
+
+ggplot(data=evol_drivers,aes(x=MS_PL,y=Cls.cnt,fill=MS_PL)) +
+  geom_boxplot() +
+  xlab("Mating System and Ploidy") +
+  ylab("Number of Climate Classes") +
+  labs(title="Ecological Niche Diversity by Biologically Distinct Groups") +
+  scale_x_discrete(labels=c("Asexual Diploid","Self-Compatible Diploid","Self-Compatible Diploid\nand Polyploid","Self-Compatible Polyploid","Self-Incompatible Diploid","Self-Incompatible\nand Self-Compatible Diploid","Self-Incompatible Diploid\nand Self-Compatible Polyploid")) +
+  #guides(fill=guide_legend(title="Mating System\n& Ploidy")) +
+  scale_fill_manual(values=c("darkslategrey", "darkviolet", "coral","cornsilk4","darkorange4","black","darkblue"))+
+                    #,labels=c("Asexual Diploid","Self-Compatible\nDiploid","Self-Compatible\nDiploid & Polyploid","Self-Compatible\nPolyploid","Self-Incompatible\nDiploid","Self-Incompatible &\nSelf-Compatible Diploid","Self-Incompatible Diploid\n& Self-Compatible Polyploid")) +
+  theme(axis.text.x=element_text(angle=45,color="black",hjust=1,size=12),
+        axis.text.y=element_text(size=12),
+        axis.title=element_text(size=15),
+        plot.title = element_text(size=18)) +
+  theme(legend.position="none") +
+  theme(axis.line=element_line(size=1,color="black",linetype=1)) +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA))
+```
+
+## Step 4: ANOVA Mating System and Ploidy Groups
+```{r}
+mspl_mod <- lm(Cls.cnt~MS_PL,data=evol_drivers)
+
+summary(mspl_mod)
+
+anova(mspl_mod)
+```
+
+
+## Step 5a: Regression
+```{r}
+evo.mod <- lm(Cls.cnt~ID+CD+CP+AD,data=evol_drivers)
+summary(evo.mod)
+```
+
+
+## Step 5b: Phylogenetic Regression
+```{r}
+molclock_vcv <- data.matrix(read.csv("molclock_vcov_matrix.csv",header=TRUE,row.names=1))
+mol_tree <- vcv2phylo(molclock_vcv)
+
+evo.mod.phylo <- phylolm(Cls.cnt~ID+CD+CP+AD,data=evol_drivers_phylo2,phy=mol_tree,model="BM")
+summary.phylolm(evo.mod.phylo)
+```
+
+## Step 6: Figure Generation (Tree & Bargraph)
+```{r}
+plot(mol_tree,rotate.tree="unrooted")
+axisPhylo(las=1)
+
+a <- ggtree(mol_tree) +
+  geom_tiplab(align=TRUE,size=2) +
+  geom_hilight(node=31, fill="darkgreen", alpha=.6) +
+  geom_hilight(node=43, fill="darkred", alpha=.6) +
+  geom_hilight(node=47, fill="darkblue", alpha=.6) +
+  geom_hilight(node=53, fill="darkorange", alpha=.6) +
+  xlim(0,14) +
+  scale_y_continuous() +
+  theme_tree2()
+
+a %<+% evol_drivers_phylo2 + geom_tippoint(aes(color=Cls.cnt,shape=factor(polyploid))) + scale_color_gradient(low="red", high="green")
+
+evol_drivers_phylo2$Cls.cnt <- as.numeric(evol_drivers_phylo2$Cls.cnt)
+
+
+a + geom_facet(panel="Ecological Niche Diversity",data=evol_drivers_phylo2,geom=ggstance::geom_barh,aes(x=Cls.cnt,fill=MS_PL),stat="identity",width=.3)+
+  guides(fill=guide_legend(title="Mating System\n& Ploidy")) + 
+  scale_fill_manual(values=c("darkslategrey", "darkviolet", "coral","cornsilk4","darkorange4","darkblue"),labels=c("Asexual Diploid","Self-Compatible\nDiploid","Self-Compatible\nDiploid & Polyploid","Self-Compatible\nPolyploid","Self-Incompatible\nDiploid","Self-Incompatible Diploid\n& Self-Compatible Polyploid"))
+```
+
+## Step 4: Table Formatting
+```{r}
+stargazer(evo.mod,type="html",title="Multiple Regression Results", align=TRUE, dep.var.labels=c("Ecological Niche Diversity"),covariate.labels=c("Self-Incompatible Diploid","Self-Compatible Diploid","Self-Compatible Polyploid (Asexual)","Asexual Diploid"),out="model_outputs.doc")
+
+
+```
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
