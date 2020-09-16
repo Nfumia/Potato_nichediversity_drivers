@@ -1,2 +1,2 @@
 # Potato_nichediversity_drivers
-Data and code applicable to "The intersection of mating system and ploidy in driving ecological niche diversity using wild potatoes (Solanum section Petota) as a model."
+Data and code applicable to "Interactions between specific breeding system and ploidy play a critical role in increasing niche adaptability in a global food crop"
